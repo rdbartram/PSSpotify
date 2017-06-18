@@ -1,0 +1,113 @@
+{
+    "version": "0.1.0",
+    "command": "${env.windir}\\sysnative\\windowspowershell\\v1.0\\PowerShell.exe",
+    "isShellCommand": true,
+    "showOutput": "always",
+    "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass"
+    ],
+    "tasks": [
+        {
+            "taskName": "Continuous Pester: Modules",
+            "isTestCommand": true,
+            "suppressTaskName": true,
+            "args": [
+                "Write-Host 'Starting continuous testing';",
+                "Import-Module -Name Pester -RequiredVersion 3.4.3 -Force;",
+                "Import-Module -Name PowerShellGuard -Force;",
+                "New-Guard -Path '${workspaceRoot}' -PathFilter '*.psm1' -Recurse -TestCommand {write-host \"Invoking Continuous Pester: Modules\"; Invoke-Pester -PesterOption @{IncludeVSCodeMarker=$true}} -TestPath '${workspaceRoot}\\Tests';",
+                "New-Guard -Path '${workspaceRoot}\\Tests' -PathFilter '*.tests.ps1' -Recurse -TestCommand {write-host \"Invoking Continuous Pester: Modules\"; Invoke-Pester -PesterOption @{IncludeVSCodeMarker=$true}} -TestPath '${workspaceRoot}\\Tests';",
+                "Wait-Guard"
+            ],
+            "isBackground": true,
+            "problemMatcher": [
+                {
+                    "owner": "Continuous Pester: Modules",
+                    "fileLocation": "absolute",
+                    "pattern": [
+                        {
+                            "regexp": "^\\s*(\\[-\\]\\s*.*?)(\\d+)ms\\s*$",
+                            "message": 1
+                        },
+                        {
+                            "regexp": "^\\s+at\\s+[^,]+,\\s*(.*?):\\s+line\\s+(\\d+)$",
+                            "file": 1,
+                            "line": 2
+                        }
+                    ],
+                    "watching": {
+                        "activeOnStart": true,
+                        "beginsPattern": "^Invoking Continuous Pester: Modules$",
+                        "endsPattern": "^Passed:\\s\\d+\\sFailed:\\s\\d+\\sSkipped:\\s\\d+\\sPending:\\s\\d+\\sInconclusive:\\s\\d+\\s$"
+                    }
+                }
+            ]
+        },
+        {
+            "taskName": "Continuous Pester: Scripts",
+            "isTestCommand": true,
+            "suppressTaskName": true,
+            "args": [
+                "Write-Host 'Starting continuous testing';",
+                "Import-Module -Name Pester -RequiredVersion 3.4.3 -Force;",
+                "Import-Module -Name PowerShellGuard -Force;",
+                "New-Guard -Path '${workspaceRoot}' -PathFilter '*.ps1' -Recurse -TestCommand {write-host \"Invoking Continuous Pester: Scripts\"; Invoke-Pester -PesterOption @{IncludeVSCodeMarker=$true}} -TestPath '${workspaceRoot}\\Tests';",
+                "New-Guard -Path '${workspaceRoot}\\Tests' -PathFilter '*.tests.ps1' -Recurse -TestCommand {write-host \"Invoking Continuous Pester: Scripts\"; Invoke-Pester -PesterOption @{IncludeVSCodeMarker=$true}} -TestPath '${workspaceRoot}\\Tests';",
+                "Wait-Guard"
+            ],
+            "isBackground": true,
+            "problemMatcher": [
+                {
+                    "owner": "Continuous Pester: Scripts",
+                    "fileLocation": "absolute",
+                    "pattern": [
+                        {
+                            "regexp": "^\\s*(\\[-\\]\\s*.*?)(\\d+)ms\\s*$",
+                            "message": 1
+                        },
+                        {
+                            "regexp": "^\\s+at\\s+[^,]+,\\s*(.*?):\\s+line\\s+(\\d+)$",
+                            "file": 1,
+                            "line": 2
+                        }
+                    ],
+                    "watching": {
+                        "activeOnStart": true,
+                        "beginsPattern": "^Invoking Continuous Pester: Scripts$",
+                        "endsPattern": "^Passed:\\s\\d+\\sFailed:\\s\\d+\\sSkipped:\\s\\d+\\sPending:\\s\\d+\\sInconclusive:\\s\\d+\\s$"
+                    }
+                }
+            ]
+        },
+        {
+            "taskName": "Package Module and Increment",
+            "isBuildCommand": false,
+            "suppressTaskName": true,
+            "args": [
+                "Write-Host 'Packaging ${workspaceRootFolderName}';",
+                "$Module = Import-Module '${workspaceRoot}' -Force -PassThru;",
+                "$Module.Version -match '(.?)(\\d+)$'| out-null; $NewVersion = ($Module.Version -replace '.?\\d+$' ,\"$($matches[1]+([int32]$matches[2] + 1))\");",
+                "Update-ModuleManifest -ModuleVersion $NewVersion -Path '${workspaceRoot}\\${workspaceRootFolderName}.psd1' -ea SilentlyContinue;",
+                "$Path = split-path '${workspaceRoot}' -parent; $Path += '\\{0}_{1}.zip';",
+                "gci '${workspaceRoot}' -Exclude docs, .vscode | Compress-Archive -U -DestinationPath ($path -f $Module.Name, $NewVersion);",
+                "write-host \"Module packaged to $($path -f $Module.Name, $NewVersion)\""
+            ],
+            "isBackground": true
+        },
+        {
+            "taskName": "Package Module",
+            "isBuildCommand": true,
+            "suppressTaskName": true,
+            "args": [
+                "Write-Host 'Packaging ${workspaceRootFolderName}';",
+                "$Module = Import-Module '${workspaceRoot}' -Force -PassThru;",
+                "$Path = split-path '${workspaceRoot}' -parent; $Path += '\\{0}_{1}.zip';",
+                "gci '${workspaceRoot}' -Exclude docs, .vscode | Compress-Archive -U -DestinationPath ($path -f $Module.Name, $Module.Version);",
+                "write-host \"Module packaged to $($path -f $Module.Name, $Module.Version)\""
+            ],
+            "isBackground": true
+        }
+    ]
+}
