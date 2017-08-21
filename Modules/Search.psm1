@@ -35,11 +35,15 @@ function Find-SpotifyItem {
         $Session = $Global:SpotifySession
     )
 
-    process {
+    begin {
         if (!$Session) {
-            throw "Spotify Session not established. Please run Connect-Spotify."
+            throw $Strings["SessionNotFound"]
         }
 
+        Assert-AuthToken -Session $Session
+    }
+
+    process {
         $Url = "$($Session.RootUrl)/search"
         $Query = @("q=$([System.Web.HttpUtility]::UrlEncode($Filter))")
 
@@ -101,12 +105,15 @@ function Find-SpotifyArtist {
         $Session = $Global:SpotifySession
     )
 
-    process {
+    begin {
         if (!$Session) {
-            throw "Spotify Session not established. Please run Connect-Spotify."
+            throw $Strings["SessionNotFound"]
         }
 
-        Find-SpotifyItem @PSBoundParameters -Type artist  | select -ExpandProperty artists | select -ExpandProperty items
+        Assert-AuthToken -Session $Session
+    }
+    process {
+        (Find-SpotifyItem @PSBoundParameters -Type artist).artists.items | Get-SpotifyArtist
     }
 }
 
@@ -138,12 +145,16 @@ function Find-SpotifyTrack {
         $Session = $Global:SpotifySession
     )
 
-    process {
+    begin {
         if (!$Session) {
-            throw "Spotify Session not established. Please run Connect-Spotify."
+            throw $Strings["SessionNotFound"]
         }
 
-        Find-SpotifyItem @PSBoundParameters -Type track  | select -ExpandProperty tracks | select -ExpandProperty items
+        Assert-AuthToken -Session $Session
+    }
+
+    process {
+        (Find-SpotifyItem @PSBoundParameters -Type track).tracks.items | Get-SpotifyTrack
     }
 }
 
@@ -175,12 +186,16 @@ function Find-SpotifyAlbum {
         $Session = $Global:SpotifySession
     )
 
-    process {
+    begin {
         if (!$Session) {
-            throw "Spotify Session not established. Please run Connect-Spotify."
+            throw $Strings["SessionNotFound"]
         }
 
-        Find-SpotifyItem @PSBoundParameters -Type album  | select -ExpandProperty albums | select -ExpandProperty items
+        Assert-AuthToken -Session $Session
+    }
+
+    process {
+        (Find-SpotifyItem @PSBoundParameters -Type album).albums.items | Get-SpotifyAlbum
     }
 }
 
@@ -212,41 +227,70 @@ function Find-SpotifyPlaylist {
         $Session = $Global:SpotifySession
     )
 
-    process {
+    begin {
         if (!$Session) {
-            throw "Spotify Session not established. Please run Connect-Spotify."
+            throw $Strings["SessionNotFound"]
         }
 
-        Find-SpotifyItem @PSBoundParameters -Type playlist  | select -ExpandProperty playlists | select -ExpandProperty items
+        Assert-AuthToken -Session $Session
+    }
+
+    process {
+        (Find-SpotifyItem @PSBoundParameters -Type playlist).playlists.items | select id, @{N = "userid"; e = {$_.owner.id}} | Get-SpotifyPlaylist
     }
 }
 
 function Get-SpotifyArtist {
     [cmdletbinding()]
     param(
-        [parameter(Mandatory)]
-        [string]
+        [parameter(Mandatory, ValueFromPipelineByPropertyName)]
+        [string[]]
         $Id,
 
         [parameter()]
-        $Session = $Global:SpotifySession
+        $Session = $Global:SpotifySession,
+
+        [parameter()]
+        [switch]
+        $Simplified
     )
 
-    process {
+    begin {
         if (!$Session) {
-            throw "Spotify Session not established. Please run Connect-Spotify."
+            throw $Strings["SessionNotFound"]
         }
 
-        Invoke-RestMethod -Headers $Session.Headers `
+        Assert-AuthToken -Session $Session
+    }
+
+    process {
+        $Artist = Invoke-RestMethod -Headers $Session.Headers `
             -Uri "$($Session.RootUrl)/artists/$Id" `
             -Method Get
+
+        $a = New-Object PSSpotify.Artist -Property @{
+            markets     = $Artist.available_markets
+            ExternalUrl = $Artist.href
+            id          = $Artist.id
+            name        = $Artist.name
+            type        = $Artist.type
+            uri         = $Artist.uri
+        }
+        if ([bool]$Simplified -eq $false) {
+            $a.Popularity = $Artist.popularity
+            $a.Images = $Artist.Images
+            $a.Followers = $Artist.Followers.total
+            $a.Genres = $Artist.Genres
+        }
+
+        $a
     }
 }
 
 function Get-SpotifyAlbum {
     [cmdletbinding(DefaultParameterSetName = "Album")]
     param(
-        [parameter(Mandatory, ParameterSetName = "Album")]
+        [parameter(Mandatory, ParameterSetName = "Album", ValueFromPipelineByPropertyName)]
         [string]
         $Id,
 
@@ -273,14 +317,22 @@ function Get-SpotifyAlbum {
         $CountryCode,
 
         [parameter()]
-        $Session = $Global:SpotifySession
+        $Session = $Global:SpotifySession,
+
+        [parameter()]
+        [switch]
+        $Simplified
     )
 
-    process {
+    begin {
         if (!$Session) {
-            throw "Spotify Session not established. Please run Connect-Spotify."
+            throw $Strings["SessionNotFound"]
         }
 
+        Assert-AuthToken -Session $Session
+    }
+
+    process {
         if ($PSBoundParameters.ContainsKey("Id")) {
             $Url = "$($Session.RootUrl)/albums/$Id"
 
@@ -294,7 +346,7 @@ function Get-SpotifyAlbum {
                 $Url += "?$($Query -join '&')"
             }
 
-            Invoke-RestMethod -Headers $Session.Headers `
+            $Output = Invoke-RestMethod -Headers $Session.Headers `
                 -Uri $Url `
                 -Method Get
         }
@@ -324,9 +376,36 @@ function Get-SpotifyAlbum {
                 $Url += "?$($Query -join '&')"
             }
          
-            Invoke-RestMethod -Headers $Session.Headers `
-                -Uri $Url `
-                -Method Get | select -ExpandProperty items
+            $Output = (Invoke-RestMethod -Headers $Session.Headers `
+                    -Uri $Url `
+                    -Method Get).items
+        }
+
+        Foreach ($Album in $Output) {
+
+            $a = New-Object PSSpotify.Album -Property @{
+                markets     = $Album.available_markets
+                ExternalUrl = $Album.href
+                id          = $Album.id
+                name        = $Album.name
+                popularity  = $Album.popularity
+                type        = $Album.type
+                uri         = $Album.uri
+                Images      = $Album.Images
+                Label       = $Album.Label
+            }
+            
+            if ([bool]$Simplified -eq $false) {
+                $a.Genres = $Album.Genres
+                $a.Tracks = ($Album.Tracks.items | ? {$_.id -ne $null} | Get-SpotifyTrack -Simplified)
+                $a.Artists = ($Album.Artists | ? {$_.id -ne $null} | Get-SpotifyArtist -Simplified)
+                $a.ReleaseDate = $Album.release_date
+                $a.ReleaseDatePrecision = $Album.release_date_precision
+                $a.Copyrights = [PSSpotify.CopyRight[]]$Album.copyrights
+                $a.AlbumType = $Album.album_type
+            }
+
+            $a
         }
     }
 }
@@ -334,7 +413,7 @@ function Get-SpotifyAlbum {
 function Get-SpotifyTrack {
     [cmdletbinding(DefaultParameterSetName = "Track")]
     param(
-        [parameter(Mandatory, ParameterSetName = "Track")]
+        [parameter(Mandatory, ParameterSetName = "Track", ValueFromPipelineByPropertyName)]
         [string]
         $Id,
 
@@ -370,14 +449,22 @@ function Get-SpotifyTrack {
         $CountryCode,
 
         [parameter()]
-        $Session = $Global:SpotifySession
+        $Session = $Global:SpotifySession,
+
+        [parameter()]
+        [switch]
+        $Simplified
     )
 
-    process {
+    begin {
         if (!$Session) {
-            throw "Spotify Session not established. Please run Connect-Spotify."
+            throw $Strings["SessionNotFound"]
         }
 
+        Assert-AuthToken -Session $Session
+    }
+    
+    process {
         if ($PSBoundParameters.ContainsKey("Id")) {
             $Url = "$($Session.RootUrl)/tracks/$Id"
 
@@ -391,7 +478,7 @@ function Get-SpotifyTrack {
                 $Url += "?$($Query -join '&')"
             }
 
-            Invoke-RestMethod -Headers $Session.Headers `
+            $Output = Invoke-RestMethod -Headers $Session.Headers `
                 -Uri $Url `
                 -Method Get
         }
@@ -417,13 +504,13 @@ function Get-SpotifyTrack {
                 $Url += "?$($Query -join '&')"
             }
          
-            Invoke-RestMethod -Headers $Session.Headers `
-                -Uri $Url `
-                -Method Get | select -ExpandProperty items
+            $Output = (Invoke-RestMethod -Headers $Session.Headers `
+                    -Uri $Url `
+                    -Method Get).items
         }
 
         if ($PSBoundParameters.ContainsKey("PlaylistId")) {
-            $Url = "$($Session.RootUrl)/users/$UserId/Playlists/$PlaylistId/tracks"
+            $Url = "$($Session.RootUrl)/users/$UserId/playlists/$PlaylistId/tracks"
 
             $Query = @()
 
@@ -447,9 +534,34 @@ function Get-SpotifyTrack {
                 $Url += "?$($Query -join '&')"
             }
          
-            Invoke-RestMethod -Headers $Session.Headers `
-                -Uri $Url `
-                -Method Get | select -ExpandProperty items
+            $Output = (Invoke-RestMethod -Headers $Session.Headers `
+                    -Uri $Url `
+                    -Method Get).items.track
+            
+        }
+
+        Foreach ($Track in $Output) {
+            $t = New-Object PSSpotify.Track -Property @{
+                Album       = ($Track.Album | ? {$_.id -ne $null} | Get-SpotifyAlbum -Simplified)
+                Artists     = ($Track.Artists | ? {$_.id -ne $null} | Get-SpotifyArtist -Simplified)
+                markets     = $Track.available_markets
+                discnumber  = $Track.disc_number
+                durationms  = $Track.duration_ms
+                explict     = $Track.explict
+                ExternalUrl = $Track.href
+                id          = $Track.id
+                name        = $Track.name
+                previewurl  = $Track.preview_url
+                tracknumber = $Track.track_number
+                type        = $Track.type
+                uri         = $Track.uri
+            }
+            if ([bool]$Simplified -eq $false) {
+                $t.Popularity = $Track.popularity
+                $t.ExternalIds = $Track.External_Ids
+            }
+
+            $t
         }
     }
 }
@@ -457,7 +569,7 @@ function Get-SpotifyTrack {
 function Get-SpotifyArtistTopTracks {
     [cmdletbinding()]
     param(
-        [parameter(Mandatory)]
+        [parameter(Mandatory, ValueFromPipelineByPropertyName)]
         [string]
         $Id,
 
@@ -469,33 +581,37 @@ function Get-SpotifyArtistTopTracks {
         $Session = $Global:SpotifySession
     )
 
-    process {
+    begin {
         if (!$Session) {
-            throw "Spotify Session not established. Please run Connect-Spotify."
+            throw $Strings["SessionNotFound"]
         }
 
+        Assert-AuthToken -Session $Session
+
+        if ([string]::IsNullOrEmpty($CountryCode)) {
+            $CountryCode = $Global:SpotifySession.CurrentUser.Country
+        }
+    }
+
+    process {
         $Url = "$($Session.RootUrl)/artists/$Id/top-tracks"
 
-        $Query = @()
-
-        if ($PSBoundParameters.ContainsKey("CountryCode")) {
-            $Query += "country=$CountryCode"
-        }
+        $Query = @("country=$CountryCode")
 
         if ($Query.Count -gt 0) {
             $Url += "?$($Query -join '&')"
         }
 
-        Invoke-RestMethod -Headers $Session.Headers `
-            -Uri $Url `
-            -Method Get | select -ExpandProperty tracks
+        (Invoke-RestMethod -Headers $Session.Headers `
+                -Uri $Url `
+                -Method Get).tracks | Get-SpotifyTrack
     }
 }
 
 function Get-SpotifyRelatedArtists {
     [cmdletbinding()]
     param(
-        [parameter(Mandatory)]
+        [parameter(Mandatory, ValueFromPipelineByPropertyName)]
         [string]
         $Id,
 
@@ -503,11 +619,15 @@ function Get-SpotifyRelatedArtists {
         $Session = $Global:SpotifySession
     )
 
-    process {
+    begin {
         if (!$Session) {
-            throw "Spotify Session not established. Please run Connect-Spotify."
+            throw $Strings["SessionNotFound"]
         }
 
+        Assert-AuthToken -Session $Session
+    }
+    
+    process {
         $Url = "$($Session.RootUrl)/artists/$Id/related-artists"
 
         $Query = @()
@@ -516,8 +636,8 @@ function Get-SpotifyRelatedArtists {
             $Url += "?$($Query -join '&')"
         }
 
-        Invoke-RestMethod -Headers $Session.Headers `
-            -Uri $Url `
-            -Method Get | select -ExpandProperty artists
+        (Invoke-RestMethod -Headers $Session.Headers `
+                -Uri $Url `
+                -Method Get).artists | Get-SpotifyArtist
     }
 }

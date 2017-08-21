@@ -22,11 +22,15 @@ function Get-SpotifyDevice {
         $Session = $Global:SpotifySession
     )
 
-    process {
+    begin {
         if (!$Session) {
-            throw "Spotify Session not established. Please run Connect-Spotify."
+            throw $Strings["SessionNotFound"]
         }
 
+        Assert-AuthToken -Session $Session
+    }
+
+    process {
         $Filter = @()
 
         if ($PSBoundParameters.ContainsKey("Type")) {
@@ -51,7 +55,16 @@ function Get-SpotifyDevice {
             -Uri $Url `
             -Method Get
 
-        $Response.Devices | ? ([scriptblock]::Create($Filter -join ' -and '))
+        $Response.Devices | ? ([scriptblock]::Create($Filter -join ' -and ')) | % {
+            New-Object PSSpotify.Device -Property @{
+                id            = $_.id
+                isactive      = $_.is_active
+                isrestricted  = $_.is_restricted
+                Name          = $_.Name
+                type          = $_.Type
+                volumepercent = $_.volume_percent
+            }
+        }
     }
 }
 
@@ -62,14 +75,34 @@ function Get-SpotifyPlayer {
         $Session = $Global:SpotifySession
     )
 
-    process {
+    begin {
         if (!$Session) {
-            throw "Spotify Session not established. Please run Connect-Spotify."
+            throw $Strings["SessionNotFound"]
         }
 
-        Invoke-RestMethod -Headers $Session.Headers `
+        Assert-AuthToken -Session $Session
+    }
+
+    process {
+        $Response = Invoke-RestMethod -Headers $Session.Headers `
             -Uri "$($Session.RootUrl)/me/player" `
             -Method Get
+
+        $player = New-Object PSSpotify.Player -Property @{
+            Device       = (Get-SpotifyDevice -id $Response.device.id)
+            RepeatState  = $Response.repeat_state
+            ShuffleState = $Response.shuffle_state
+            TimeStamp    = $Response.TimeStamp
+            Progress     = [TimeSpan]::FromMilliseconds($Response.progress_ms)
+            IsPlaying    = $Response.is_playing
+            CurrentTrack = $Response.item | get-spotifytrack
+        }
+
+        if ($Response.context.uri -match 'spotify:user:(\d+):playlist:(.+)$') {
+            $player.queue = Get-SpotifyPlaylist -Id $matches[2] -UserId $matches[1]
+        }
+
+        $player
     }
 }
 
@@ -107,11 +140,15 @@ function Set-SpotifyPlayer {
         $Session = $Global:SpotifySession
     )
 
-    process {
+    begin {
         if (!$Session) {
-            throw "Spotify Session not established. Please run Connect-Spotify."
+            throw $Strings["SessionNotFound"]
         }
 
+        Assert-AuthToken -Session $Session
+    }
+
+    process {
         if ($PSBoundParameters.ContainsKey("DeviceId")) {
             $Url = "$($Session.RootUrl)/me/player"
 
@@ -186,24 +223,42 @@ function Get-SpotifyCurrentTrack {
         $Session = $Global:SpotifySession
     )
 
-    process {
+    begin {
         if (!$Session) {
-            throw "Spotify Session not established. Please run Connect-Spotify."
+            throw $Strings["SessionNotFound"]
         }
 
-        Invoke-RestMethod -Headers $Session.Headers `
+        Assert-AuthToken -Session $Session
+    }
+
+    process {
+        $Response = Invoke-RestMethod -Headers $Session.Headers `
             -Uri "$($Session.RootUrl)/me/player/currently-playing" `
             -Method Get
+
+        $CurrentTrack = New-Object PSSpotify.CurrentTrack -Property @{
+            TimeStamp = $Response.TimeStamp
+            Progress  = [TimeSpan]::FromMilliseconds($Response.progress_ms)
+            IsPlaying = $Response.is_playing
+            Track     = $Response.item | get-spotifytrack
+        }
+
+        if ($Response.context.uri -match 'spotify:user:(\d+):playlist:(.+)$') {
+            $CurrentTrack.queue = Get-SpotifyPlaylist -Id $matches[2] -UserId $matches[1]
+        }
+
+        $CurrentTrack
     }
 }
 
 function Resume-Spotify {
-    [cmdletbinding(DefaultParameterSetName = "OffsetUri")]
+    [cmdletbinding(DefaultParameterSetName = "Play")]
     param(
         [parameter()]
         [string]
         $DeviceId,
 
+        [parameter(ParameterSetName = "Play")]
         [parameter(Mandatory, ParameterSetName = "OffsetId")]
         [parameter(Mandatory, ParameterSetName = "OffsetUri")]
         [string[]]
@@ -221,11 +276,19 @@ function Resume-Spotify {
         $Session = $Global:SpotifySession
     )
 
-    process {
+    begin {
         if (!$Session) {
-            throw "Spotify Session not established. Please run Connect-Spotify."
+            throw $Strings["SessionNotFound"]
         }
 
+        Assert-AuthToken -Session $Session
+
+        if ([string]::IsNullOrEmpty($DeviceId) -eq $false -and ((Get-SpotifyDevice -ov devices).IsActive -contains $true) -eq $false) {
+            $psboundparameters.add("deviceid", $devices[0].id)
+        }
+    }
+
+    process {
         $Url = "$($Session.RootUrl)/me/player/play"
 
         $Query = @()
@@ -236,7 +299,12 @@ function Resume-Spotify {
         }
 
         if ($PSBoundParameters.ContainsKey("Context")) {
-            $Body.Add("uris", $Context)
+            if ($Context -match 'track') {
+                $Body.Add("uris", $Context -match 'track')
+            }
+            else {
+                $Body.Add("context_uri", $Context[0])
+            }
         }
 
         if ($PSBoundParameters.ContainsKey("OffsetId")) {
@@ -271,11 +339,15 @@ function Pause-Spotify {
         $Session = $Global:SpotifySession
     )
 
-    process {
+    begin {
         if (!$Session) {
-            throw "Spotify Session not established. Please run Connect-Spotify."
+            throw $Strings["SessionNotFound"]
         }
 
+        Assert-AuthToken -Session $Session
+    }
+
+    process {
         $Url = "$($Session.RootUrl)/me/player/pause"
 
         if ($PSBoundParameters.ContainsKey("DeviceId")) {
@@ -299,11 +371,15 @@ function Skip-SpotifyTrack {
         $Session = $Global:SpotifySession
     )
 
-    process {
+    begin {
         if (!$Session) {
-            throw "Spotify Session not established. Please run Connect-Spotify."
+            throw $Strings["SessionNotFound"]
         }
 
+        Assert-AuthToken -Session $Session
+    }
+
+    process {
         $Url = "$($Session.RootUrl)/me/player/next"
 
         if ($PSBoundParameters.ContainsKey("DeviceId")) {
@@ -327,11 +403,15 @@ function Previous-SpotifyTrack {
         $Session = $Global:SpotifySession
     )
 
-    process {
+    begin {
         if (!$Session) {
-            throw "Spotify Session not established. Please run Connect-Spotify."
+            throw $Strings["SessionNotFound"]
         }
 
+        Assert-AuthToken -Session $Session
+    }
+    
+    process {
         $Url = "$($Session.RootUrl)/me/player/previous"
 
         if ($PSBoundParameters.ContainsKey("DeviceId")) {

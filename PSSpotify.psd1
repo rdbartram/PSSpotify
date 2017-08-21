@@ -12,7 +12,7 @@
     RootModule        = 'PSSpotify'
 
     # Version number of this module.
-    ModuleVersion     = '0.0.0.1'
+    ModuleVersion     = '0.0.0.2'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -21,7 +21,7 @@
     GUID              = 'da748760-3efb-42a4-9361-43cafa318bab'
 
     # Author of this module
-    Author            = 'Ryan Bartram, Andrew Craig, Jan Oehen'
+    Author            = 'Ryan Bartram'
 
     # Company or vendor of this module
     CompanyName       = ''
@@ -63,10 +63,10 @@
     # TypesToProcess = @()
 
     # Format files (.ps1xml) to be loaded when importing this module
-    # FormatsToProcess = @()
+    FormatsToProcess  = @('PSSpotify.format.ps1xml')
 
     # Modules to import as nested modules of the module specified in RootModule/ModuleToProcess
-    NestedModules     = @('Modules\Auth.psm1', 'Modules\Playback.psm1', 'Modules\Playlist.psm1', 'Modules\Profile.psm1', 'Modules\Search.psm1')
+    NestedModules     = @('Modules\OAuth.psm1', 'Modules\Auth.psm1', 'Modules\Playback.psm1', 'Modules\Playlist.psm1', 'Modules\Profile.psm1', 'Modules\Search.psm1', 'Modules\Browse.psm1', 'Modules\Following.psm1', 'Modules\Library.psm1', 'Modules\Helpers.psm1')
 
     # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
     #FunctionsToExport = ''
@@ -91,9 +91,8 @@
 
     # Private data to pass to the module specified in RootModule/ModuleToProcess. This may also contain a PSData hashtable with additional module metadata used by PowerShell.
     PrivateData       = @{
-        RedirectUri = "https://localhost:8001"
-        
-        PSData      = @{
+       
+        PSData = @{
 
             # Tags applied to this module. These help with module discovery in online galleries.
             # Tags = @()

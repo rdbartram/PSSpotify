@@ -13,9 +13,17 @@ function Get-SpotifyPlaylist {
         [string]
         $UserId,
 
+        [parameter(Mandatory, ParameterSetName = "Category")]
+        [string]
+        $CategoryId,
+
         [parameter(ParameterSetName = "My")]
         [switch]
         $My,
+
+        [parameter(ParameterSetName = "My")]
+        [string]
+        $Name,
 
         [parameter(ParameterSetName = "User")]
         [string]
@@ -27,24 +35,34 @@ function Get-SpotifyPlaylist {
 
         [parameter(ParameterSetName = "User")]
         [parameter(ParameterSetName = "My")]
+        [parameter(Mandatory, ParameterSetName = "Category")]
         [ValidateRange(1, 50)]
         [int32]
         $Limit,
 
         [parameter(ParameterSetName = "User")]
         [parameter(ParameterSetName = "My")]
+        [parameter(ParameterSetName = "Category")]
         [int32]
         $Offset,
 
         [parameter()]
-        $Session = $Global:SpotifySession
+        $Session = $Global:SpotifySession,
+
+        [parameter()]
+        [switch]
+        $Simplified
     )
 
-    process {
+    begin {
         if (!$Session) {
-            throw "Spotify Session not established. Please run Connect-Spotify."
+            throw $Strings["SessionNotFound"]
         }
 
+        Assert-AuthToken -Session $Session
+    }
+
+    process {
         $Url = $($Session.RootUrl)
 
         if ($PSBoundParameters.ContainsKey("My")) {
@@ -53,6 +71,10 @@ function Get-SpotifyPlaylist {
 
         if ($PSBoundParameters.ContainsKey("UserId")) {
             $Url += "/users/$UserId/playlists"
+        }
+
+        if ($PSBoundParameters.ContainsKey("CategoryId")) {
+            $Url += "/browse/categories/$CategoryId/playlists"
         }
 
         $Query = @()
@@ -82,9 +104,17 @@ function Get-SpotifyPlaylist {
             $Url += "?$($Query -join '&')"
         }
 
-        Invoke-RestMethod -Headers $Session.Headers `
+        $Output = Invoke-RestMethod -Headers $Session.Headers `
             -Uri $Url `
-            -Method Get | select -ExpandProperty items
+            -Method Get
+
+        if ($My) {
+            $Output = $Output.items | ? {[string]::IsNullOrEmpty($Name) -or $_.name -eq $Name}
+        }
+
+        Foreach ($Playlist in $Output) {
+            $Playlist | Convertto-PlaylistObject @PSBoundParameters
+        }
     }
 }
 
@@ -119,11 +149,15 @@ function New-SpotifyPlaylist {
         $Session = $Global:SpotifySession
     )
 
-    process {
+    begin {
         if (!$Session) {
-            throw "Spotify Session not established. Please run Connect-Spotify."
+            throw $Strings["SessionNotFound"]
         }
 
+        Assert-AuthToken -Session $Session
+    }
+
+    process {
         $Url = "$($Session.RootUrl)/users/$UserId/playlists"
 
         $Body = @{
@@ -145,9 +179,13 @@ function New-SpotifyPlaylist {
             -Method Post `
             -Body (ConvertTo-Json $Body)
 
+        $P = $Response | Convertto-PlaylistObject
+
         if ($PSBoundParameters.ContainsKey("Tracks")) {
-            $response | Add-SpotifyTracktoPlaylist -Tracks $Tracks
+            $P | Add-SpotifyTracktoPlaylist -Tracks $Tracks
         }
+
+        $P
     }
 }
 
@@ -174,11 +212,15 @@ function Add-SpotifyTracktoPlaylist {
         $Session = $Global:SpotifySession
     )
 
-    process {
+    begin {
         if (!$Session) {
-            throw "Spotify Session not established. Please run Connect-Spotify."
+            throw $Strings["SessionNotFound"]
         }
 
+        Assert-AuthToken -Session $Session
+    }
+
+    process {
         $Url = "$($Session.RootUrl)/users/$UserId/playlists/$Id/tracks"
 
         $Body = @{uris = $Tracks}
@@ -226,11 +268,15 @@ function Set-SpotifyPlaylistTrackPosition {
         $Session = $Global:SpotifySession
     )
 
-    process {
+    begin {
         if (!$Session) {
-            throw "Spotify Session not established. Please run Connect-Spotify."
+            throw $Strings["SessionNotFound"]
         }
 
+        Assert-AuthToken -Session $Session
+    }
+
+    process {
         $Url = "$($Session.RootUrl)/users/$UserId/playlists/$id/tracks"
 
         $Body = @{
@@ -255,15 +301,19 @@ function Set-SpotifyPlaylistTrackPosition {
 }
 
 function Set-SpotifyPlaylist {
-    [cmdletbinding()]
+    [cmdletbinding(DefaultParameterSetName = "id")]
     param(
-        [parameter()]
+        [parameter(Mandatory, ParameterSetName = "id")]
         [string]
-        $UserId = $Global:SpotifySession.CurrentUser.id,
+        $UserId,
 
-        [parameter(Mandatory, ValueFromPipelineByPropertyName)]
+        [parameter(Mandatory, ParameterSetName = "id")]
         [String]
         $Id,
+
+        [parameter(Mandatory, ParameterSetName = "InputObject", ValueFromPipeline)]
+        [PSSpotify.Playlist]
+        $InputObject,
 
         [parameter()]
         [String]
@@ -286,12 +336,25 @@ function Set-SpotifyPlaylist {
         $Tracks,
 
         [parameter()]
+        [switch]
+        $PassThru,
+
+        [parameter()]
         $Session = $Global:SpotifySession
     )
 
-    process {
+    begin {
         if (!$Session) {
-            throw "Spotify Session not established. Please run Connect-Spotify."
+            throw $Strings["SessionNotFound"]
+        }
+
+        Assert-AuthToken -Session $Session
+    }
+
+    process {
+        if ($InputObject) {
+            $id = $InputObject.Id
+            $UserId = $InputObject.Owner.id
         }
 
         $Url = "$($Session.RootUrl)/users/$UserId/playlists/$id"
@@ -303,10 +366,12 @@ function Set-SpotifyPlaylist {
         }
 
         if ($PSBoundParameters.ContainsKey("Tracks")) {
+            $TrackUrl = "$Url/tracks?uris=$($tracks -join ',')"
+
             $Response = Invoke-RestMethod -Headers $Session.Headers `
-                -Uri "$Url/tracks" `
+                -Uri $TrackUrl `
                 -Method Put `
-                -Body (ConvertTo-Json @{Uris = $Tracks})
+                -Body (ConvertTo-Json @{uris = $Tracks})
         }
 
         if ($PSBoundParameters.ContainsKey("IsPublic")) {
@@ -319,10 +384,18 @@ function Set-SpotifyPlaylist {
             }
         }
 
+        if ($PSBoundParameters.ContainsKey("description")) {
+            $Body.Add("description", $description)
+        }
+
         $Response = Invoke-RestMethod -Headers $Session.Headers `
             -Uri $Url `
             -Method Put `
             -Body (ConvertTo-Json $Body)
+        
+        if ($PSBoundParameters.ContainsKey("PassThru")) {
+            Get-SpotifyPlaylist -Id $id -UserId $UserId
+        }
     }
 }
 
@@ -341,11 +414,15 @@ function Randomize-SpotifyPlaylistTrackOrder {
         $Session = $Global:SpotifySession
     )
 
-    process {
+    begin {
         if (!$Session) {
-            throw "Spotify Session not established. Please run Connect-Spotify."
+            throw $Strings["SessionNotFound"]
         }
 
+        Assert-AuthToken -Session $Session
+    }
+
+    process {
         $Tracks = Get-SpotifyTrack -PlaylistId $Id -UserId $UserId
 
         Set-SpotifyPlaylist @PSBoundParameters -Tracks ($Tracks.uri | Get-Random -Count $Tracks.Count)
@@ -386,12 +463,16 @@ function Remove-SpotifyTrackfromPlaylist {
         $Session = $Global:SpotifySession
     )
 
-    process {
+    begin {
         if (!$Session) {
-            throw "Spotify Session not established. Please run Connect-Spotify."
+            throw $Strings["SessionNotFound"]
         }
 
-        $Url = "$($Session.RootUrl)/users/$UserId/playlists/$Id"
+        Assert-AuthToken -Session $Session
+    }
+
+    process {
+        $Url = "$($Session.RootUrl)/users/$UserId/playlists/$Id/tracks"
 
         $Body = @{}
 
@@ -427,7 +508,44 @@ function Remove-SpotifyTrackfromPlaylist {
 
         $Response = Invoke-RestMethod -Headers $Session.Headers `
             -Uri $Url `
-            -Method Post `
+            -Method delete `
             -Body (ConvertTo-Json $Body)
     }
+}
+
+Function Convertto-PlaylistObject {
+    param(
+        [parameter(Mandatory, ValueFromPipeline)]
+        $InputObject,
+
+        [parameter()]
+        [switch]
+        $Simplified,
+
+        [parameter(ValueFromRemainingArguments)]
+        $Trash
+    )
+
+    process {
+        $p = New-Object PSSpotify.Playlist -Property @{
+            ExternalUrl   = $InputObject.href
+            id            = $InputObject.id
+            name          = $InputObject.name
+            type          = $InputObject.type
+            uri           = $InputObject.uri
+            Images        = $InputObject.Images
+            Owner         = Get-SpotifyProfile -Id $InputObject.Owner.Id
+            SnapshotId    = $InputObject.snapshot_id
+            collaborative = $InputObject.collaborative
+            public        = $InputObject.Public
+        }
+
+        if ([bool]$Simplified -eq $false) {
+            $p.description = $InputObject.description
+            $p.Followers = $InputObject.Followers
+        }
+
+        $p
+    }
+
 }

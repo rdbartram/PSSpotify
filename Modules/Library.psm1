@@ -27,11 +27,15 @@ function Get-SpotifyLibrary {
         $Session = $Global:SpotifySession
     )
 
-    process {
+    begin {
         if (!$Session) {
-            throw "Spotify Session not established. Please run Connect-Spotify."
+            throw $Strings["SessionNotFound"]
         }
 
+        Assert-AuthToken -Session $Session
+    }
+
+    process {
         $Url = "$($Session.RootUrl)/me/$Type"
 
         $Query = @()
@@ -51,10 +55,29 @@ function Get-SpotifyLibrary {
         if ($Query.Count -gt 0) {
             $Url += "?$($Query -join '&')"
         }
+        
+        $Items = (Invoke-RestMethod -Headers $Session.Headers `
+                -Uri $Url.ToLower() `
+                -Method Get).items
 
-        Invoke-RestMethod -Headers $Session.Headers `
-            -Uri $Url `
-            -Method Get | select -ExpandProperty items
+        switch ($Type) {
+            'Albums' {
+                $Items | % { 
+                    New-Object PSSpotify.LibraryAlbumObject -Property @{
+                        Album = $_.album | Get-SpotifyAlbum
+                        Added = $_.added_at
+                    }
+                }
+            }
+            'Tracks' {
+                $Items | % { 
+                    New-Object PSSpotify.LibraryTrackObject -Property @{
+                        Track = $_.track | Get-SpotifyTrack
+                        Added = $_.added_at
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -69,11 +92,15 @@ function Add-SpotifyTracktoLibrary {
         $Session = $Global:SpotifySession
     )
 
-    process {
+    begin {
         if (!$Session) {
-            throw "Spotify Session not established. Please run Connect-Spotify."
+            throw $Strings["SessionNotFound"]
         }
 
+        Assert-AuthToken -Session $Session
+    }
+
+    process {
         $Url = "$($Session.RootUrl)/me/tracks"
 
         $Body = @{ids = $Tracks}
@@ -96,11 +123,15 @@ function Add-SpotifyAlbumtoLibrary {
         $Session = $Global:SpotifySession
     )
 
-    process {
+    begin {
         if (!$Session) {
-            throw "Spotify Session not established. Please run Connect-Spotify."
+            throw $Strings["SessionNotFound"]
         }
 
+        Assert-AuthToken -Session $Session
+    }
+
+    process {
         $Url = "$($Session.RootUrl)/me/albums"
 
         $Body = @{ids = $Albums}
@@ -123,10 +154,15 @@ function Remove-SpotifyTrackfromLibrary {
         $Session = $Global:SpotifySession
     )
 
-    process {
+    begin {
         if (!$Session) {
-            throw "Spotify Session not established. Please run Connect-Spotify."
+            throw $Strings["SessionNotFound"]
         }
+
+        Assert-AuthToken -Session $Session
+    }
+
+    process {
 
         $Url = "$($Session.RootUrl)/me/tracks"
 
@@ -139,7 +175,7 @@ function Remove-SpotifyTrackfromLibrary {
     }
 }
 
-function Remove-SpotifyTrackfromLibrary {
+function Remove-SpotifyAlbumfromLibrary {
     [cmdletbinding()]
     param(
         [parameter(Mandatory, ValueFromPipeline)]
@@ -149,11 +185,16 @@ function Remove-SpotifyTrackfromLibrary {
         [parameter()]
         $Session = $Global:SpotifySession
     )
+    
+    begin {
+        if (!$Session) {
+            throw $Strings["SessionNotFound"]
+        }
+
+        Assert-AuthToken -Session $Session
+    }
 
     process {
-        if (!$Session) {
-            throw "Spotify Session not established. Please run Connect-Spotify."
-        }
 
         $Url = "$($Session.RootUrl)/me/albums"
 
@@ -177,11 +218,15 @@ function Assert-SpotifyTrackinLibrary {
         $Session = $Global:SpotifySession
     )
 
-    process {
+    begin {
         if (!$Session) {
-            throw "Spotify Session not established. Please run Connect-Spotify."
+            throw $Strings["SessionNotFound"]
         }
 
+        Assert-AuthToken -Session $Session
+    }
+
+    process {
         $Url = "$($Session.RootUrl)/me/tracks/contains"
 
         $Query = @(ids = $Tracks)
@@ -203,11 +248,15 @@ function Assert-SpotifyAlbuminLibrary {
         $Session = $Global:SpotifySession
     )
 
-    process {
+    begin {
         if (!$Session) {
-            throw "Spotify Session not established. Please run Connect-Spotify."
+            throw $Strings["SessionNotFound"]
         }
 
+        Assert-AuthToken -Session $Session
+    }
+
+    process {
         $Url = "$($Session.RootUrl)/me/albums/contains"
 
         $Query = @(ids = $Tracks)
